@@ -182,21 +182,34 @@ def resolve_output_dir(output_dir: str, anchor_dir: Path) -> Path:
     return (anchor_dir / path).resolve()
 
 
-def render_progress(current: int, total: int, speaker: str, model: str, width: int = 24) -> str:
-    complete = int(width * current / total)
+def render_progress(
+    message_number: int,
+    total_messages: int,
+    speaker_turn_number: int,
+    turns_per_agent: int,
+    speaker: str,
+    model: str,
+    width: int = 24,
+) -> str:
+    complete = int(width * message_number / total_messages)
     bar = "#" * complete + "-" * (width - complete)
-    return f"[{bar}] turn {current}/{total} {speaker} ({model})"
+    return (
+        f"[{bar}] message {message_number}/{total_messages} "
+        f"{speaker} turn {speaker_turn_number}/{turns_per_agent} ({model})"
+    )
 
 
 def emit_progress(turn: TranscriptTurn, total_turns: int) -> None:
     message = render_progress(
-        current=turn.turn_number,
-        total=total_turns,
+        message_number=turn.message_number,
+        total_messages=total_turns,
+        speaker_turn_number=turn.speaker_turn_number,
+        turns_per_agent=total_turns // 2,
         speaker=turn.speaker,
         model=turn.model,
     )
     if sys.stderr.isatty():
-        end = "\n" if turn.turn_number == total_turns else ""
+        end = "\n" if turn.message_number == total_turns else ""
         print(f"\r{message}", file=sys.stderr, end=end, flush=True)
     else:
         print(message, file=sys.stderr, flush=True)
@@ -251,15 +264,19 @@ class RunLogger:
             f"verbose_mode={verbose_mode} output_dir={output_dir}"
         )
 
-    def log_turn_start(self, turn_number: int, speaker: str, model: str) -> None:
+    def log_turn_start(
+        self, message_number: int, speaker_turn_number: int, speaker: str, model: str
+    ) -> None:
         self._append(
-            f"turn {turn_number} starting speaker={speaker} model={model}"
+            f"message {message_number} starting speaker={speaker} "
+            f"speaker_turn={speaker_turn_number} model={model}"
         )
 
     def log_turn_complete(self, turn: TranscriptTurn, total_turns: int) -> None:
         self._append(
-            f"turn {turn.turn_number}/{total_turns} completed "
-            f"speaker={turn.speaker} model={turn.model} "
+            f"message {turn.message_number}/{total_turns} completed "
+            f"speaker={turn.speaker} speaker_turn={turn.speaker_turn_number} "
+            f"model={turn.model} "
             f"chars={len(turn.content)}"
         )
 
@@ -355,9 +372,13 @@ def main() -> int:
             output_dir=output_dir,
         )
 
-        def on_turn_start(turn_number: int, speaker: str, model: str) -> None:
+        def on_turn_start(
+            message_number: int, speaker_turn_number: int, speaker: str, model: str
+        ) -> None:
             if logger is not None:
-                logger.log_turn_start(turn_number, speaker, model)
+                logger.log_turn_start(
+                    message_number, speaker_turn_number, speaker, model
+                )
 
         def on_turn(turn: TranscriptTurn, total_turns: int) -> None:
             emit_progress(turn, total_turns)

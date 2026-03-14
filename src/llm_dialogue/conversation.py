@@ -25,7 +25,8 @@ class AgentConfig:
 
 @dataclass(slots=True)
 class TranscriptTurn:
-    turn_number: int
+    message_number: int
+    speaker_turn_number: int
     speaker: str
     model: str
     content: str
@@ -95,7 +96,7 @@ def run_conversation(
     turn_limit: int,
     verbose_mode: bool,
     opening_instruction: str | None = None,
-    on_turn_start: Callable[[int, str, str], None] | None = None,
+    on_turn_start: Callable[[int, int, str, str], None] | None = None,
     on_turn: Callable[[TranscriptTurn, int], None] | None = None,
     started_at_utc: str | None = None,
 ) -> ConversationResult:
@@ -126,26 +127,38 @@ def run_conversation(
     speakers = [agent_a, agent_b]
     turns: list[TranscriptTurn] = []
     inbound_message: str | None = None
+    speaker_turn_counts = {
+        agent_a.name: 0,
+        agent_b.name: 0,
+    }
 
     total_turns = turn_limit * 2
 
     for index in range(total_turns):
         speaker = speakers[index % 2]
         speaker_history = histories[speaker.name]
-        turn_number = index + 1
+        message_number = index + 1
+        speaker_turn_counts[speaker.name] += 1
+        speaker_turn_number = speaker_turn_counts[speaker.name]
 
         if inbound_message is not None:
             speaker_history.append(ChatMessage(role="user", content=inbound_message))
 
         if on_turn_start is not None:
-            on_turn_start(turn_number, speaker.name, speaker.client.model)
+            on_turn_start(
+                message_number,
+                speaker_turn_number,
+                speaker.name,
+                speaker.client.model,
+            )
 
         result = speaker.client.generate(speaker_history)
         speaker_history.append(ChatMessage(role="assistant", content=result.content))
         inbound_message = result.content
 
         turn = TranscriptTurn(
-            turn_number=turn_number,
+            message_number=message_number,
+            speaker_turn_number=speaker_turn_number,
             speaker=speaker.name,
             model=speaker.client.model,
             content=result.content,

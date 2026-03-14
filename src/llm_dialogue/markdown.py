@@ -83,8 +83,9 @@ def render_transcript(result: ConversationResult) -> str:
     for turn in result.turns:
         lines.extend(
             [
-                f"### Turn {turn.turn_number}: {turn.speaker}",
+                f"### {turn.speaker} Turn {turn.speaker_turn_number}",
                 "",
+                f"- Message number: `{turn.message_number}`",
                 f"- Model: `{turn.model}`",
                 f"- Timestamp (UTC): `{turn.timestamp_utc}`",
                 "",

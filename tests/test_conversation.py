@@ -65,6 +65,14 @@ class ConversationTests(unittest.TestCase):
             [turn.speaker for turn in result.turns],
             ["Alpha", "Beta", "Alpha", "Beta"],
         )
+        self.assertEqual(
+            [turn.speaker_turn_number for turn in result.turns],
+            [1, 1, 2, 2],
+        )
+        self.assertEqual(
+            [turn.message_number for turn in result.turns],
+            [1, 2, 3, 4],
+        )
         self.assertIn("Start talking.", result.turns[0].content)
         self.assertIn("Alpha reply 1", result.turns[1].content)
         self.assertEqual(agent_a.client.history_lengths, [2, 4])
@@ -105,28 +113,30 @@ class ConversationTests(unittest.TestCase):
             agent_b=agent_b,
             turn_limit=2,
             verbose_mode=False,
-            on_turn_start=lambda turn_number, speaker, model: starts.append(
-                (turn_number, speaker, model)
+            on_turn_start=lambda message_number, speaker_turn_number, speaker, model: starts.append(
+                (message_number, speaker_turn_number, speaker, model)
             ),
-            on_turn=lambda turn, total: seen.append((turn.turn_number, turn.speaker, total)),
+            on_turn=lambda turn, total: seen.append(
+                (turn.message_number, turn.speaker_turn_number, turn.speaker, total)
+            ),
         )
 
         self.assertEqual(
             starts,
             [
-                (1, "Alpha", "model-alpha"),
-                (2, "Beta", "model-beta"),
-                (3, "Alpha", "model-alpha"),
-                (4, "Beta", "model-beta"),
+                (1, 1, "Alpha", "model-alpha"),
+                (2, 1, "Beta", "model-beta"),
+                (3, 2, "Alpha", "model-alpha"),
+                (4, 2, "Beta", "model-beta"),
             ],
         )
         self.assertEqual(
             seen,
             [
-                (1, "Alpha", 4),
-                (2, "Beta", 4),
-                (3, "Alpha", 4),
-                (4, "Beta", 4),
+                (1, 1, "Alpha", 4),
+                (2, 1, "Beta", 4),
+                (3, 2, "Alpha", 4),
+                (4, 2, "Beta", 4),
             ],
         )
 
@@ -176,8 +186,8 @@ class ConversationTests(unittest.TestCase):
 
     def test_render_progress_includes_counter_and_identity(self) -> None:
         self.assertEqual(
-            render_progress(3, 10, "Agent A", "openai/gpt-4o"),
-            "[#######-----------------] turn 3/10 Agent A (openai/gpt-4o)",
+            render_progress(3, 10, 2, 5, "Agent A", "openai/gpt-4o"),
+            "[#######-----------------] message 3/10 Agent A turn 2/5 (openai/gpt-4o)",
         )
 
     def test_find_dotenv_walks_upward(self) -> None:
@@ -243,7 +253,7 @@ class ConversationTests(unittest.TestCase):
                 verbose_mode=True,
                 output_dir=Path(tmpdir),
             )
-            logger.log_turn_start(13, "Agent A", "openai/gpt-4o")
+            logger.log_turn_start(13, 7, "Agent A", "openai/gpt-4o")
             logger.log_failure(
                 TimeoutError("timed out"),
                 Path(tmpdir) / "conversation_2026-03-14T20-00-00+00-00.md",
@@ -251,7 +261,10 @@ class ConversationTests(unittest.TestCase):
 
             text = logger.path.read_text(encoding="utf-8")
             self.assertIn("turns_per_agent=20 total_messages=40", text)
-            self.assertIn("turn 13 starting speaker=Agent A model=openai/gpt-4o", text)
+            self.assertIn(
+                "message 13 starting speaker=Agent A speaker_turn=7 model=openai/gpt-4o",
+                text,
+            )
             self.assertIn("run failed error=TimeoutError('timed out')", text)
             self.assertIn("partial transcript=", text)
 
