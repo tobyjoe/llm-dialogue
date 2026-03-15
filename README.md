@@ -7,6 +7,7 @@ It is designed for the experiment you described:
 - two models or two independent instances of the same model
 - same or different starting prompts
 - fixed number of turns per agent
+- optional early stopping when both agents explicitly agree they are done
 - temperature defaulting to `1.0`
 - optional "verbose" mode that asks for visible reasoning instead of only human-facing output
 
@@ -64,6 +65,8 @@ llm-dialogue \
 
 Here `--turns 20` means Agent A gets 20 turns and Agent B gets 20 turns, for 40 total messages.
 
+By default the agents can also end the conversation early. The system prompt tells them to use the exact token `[[CONCLUSION_REACHED]]` when they believe the conversation has reached a stable conclusion. The run ends only when both agents include that token in back-to-back messages.
+
 Different models:
 
 ```bash
@@ -108,6 +111,7 @@ Each run writes a Markdown file into `transcripts/` by default with:
 - base URLs
 - temperature and token settings
 - turns per agent and total messages
+- actual messages used and termination reason
 - timestamps
 - prompts
 - opening instruction
@@ -121,6 +125,8 @@ The transcript file is now created at the start of the run and updated after eve
 
 Each run also writes a sibling `.log` file with turn-start markers, completion markers, and full exception tracebacks. If a timeout or provider error occurs, the CLI prints the debug log path on stderr.
 
+Use `--no-early-stop` if you want the conversation to always consume the full configured number of turns per agent.
+
 ## CLI reference
 
 ```text
@@ -132,6 +138,7 @@ usage: llm-dialogue [-h] [--prompt-a PROMPT_A] [--prompt-b PROMPT_B]
                     [--http-referer HTTP_REFERER] [--x-title X_TITLE]
                     [--name-a NAME_A] [--name-b NAME_B] [--turns TURNS]
                     [--temperature TEMPERATURE] [--max-tokens MAX_TOKENS]
-                    [--verbose-mode] [--output-dir OUTPUT_DIR]
+                    [--verbose-mode] [--no-early-stop]
+                    [--output-dir OUTPUT_DIR]
                     [prompt]
 ```

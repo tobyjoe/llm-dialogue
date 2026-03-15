@@ -40,6 +40,8 @@ class ConversationResult:
     status: str
     error_message: str | None
     turn_limit: int
+    terminated_early: bool
+    termination_reason: str
     verbose_mode: bool
     temperature: float
     max_tokens: int | None
@@ -70,13 +72,16 @@ VISIBLE_REASONING_INSTRUCTION = (
     "Do not imply that you have hidden thoughts beyond what you write."
 )
 
+EARLY_STOP_TOKEN = "[[CONCLUSION_REACHED]]"
 
-def build_system_prompt(base_prompt: str, turn_limit: int, verbose_mode: bool) -> str:
+def build_system_prompt(
+    base_prompt: str, turn_limit: int, verbose_mode: bool, allow_early_stop: bool
+) -> str:
     total_messages = turn_limit * 2
     mode_instruction = (
         VISIBLE_REASONING_INSTRUCTION if verbose_mode else OFFICIAL_OUTPUT_INSTRUCTION
     )
-    return (
+    prompt = (
         f"{base_prompt.strip()}\n\n"
         "Conversation conditions:\n"
         "- You are speaking only to the other language model.\n"
@@ -88,6 +93,15 @@ def build_system_prompt(base_prompt: str, turn_limit: int, verbose_mode: bool) -
         "- Do not over-optimize for this condition, but be aware of limits.\n"
         f"- {mode_instruction}"
     )
+    if allow_early_stop:
+        prompt += (
+            "\n"
+            "Conclusion protocol:\n"
+            f"- If you believe the conversation has reached a stable conclusion, include the exact token {EARLY_STOP_TOKEN} in your message and state the conclusion clearly.\n"
+            f"- The conversation ends early only if both models include {EARLY_STOP_TOKEN} in back-to-back messages.\n"
+            "- If the other model signals conclusion but you disagree, continue normally without the token."
+        )
+    return prompt
 
 
 def run_conversation(
@@ -95,6 +109,7 @@ def run_conversation(
     agent_b: AgentConfig,
     turn_limit: int,
     verbose_mode: bool,
+    allow_early_stop: bool = True,
     opening_instruction: str | None = None,
     on_turn_start: Callable[[int, int, str, str], None] | None = None,
     on_turn: Callable[[TranscriptTurn, int], None] | None = None,
@@ -112,14 +127,18 @@ def run_conversation(
         agent_a.name: [
             ChatMessage(
                 role="system",
-                content=build_system_prompt(agent_a.prompt, turn_limit, verbose_mode),
+                content=build_system_prompt(
+                    agent_a.prompt, turn_limit, verbose_mode, allow_early_stop
+                ),
             ),
             ChatMessage(role="user", content=opening),
         ],
         agent_b.name: [
             ChatMessage(
                 role="system",
-                content=build_system_prompt(agent_b.prompt, turn_limit, verbose_mode),
+                content=build_system_prompt(
+                    agent_b.prompt, turn_limit, verbose_mode, allow_early_stop
+                ),
             ),
         ],
     }
@@ -127,6 +146,7 @@ def run_conversation(
     speakers = [agent_a, agent_b]
     turns: list[TranscriptTurn] = []
     inbound_message: str | None = None
+    previous_turn_used_conclusion_token = False
     speaker_turn_counts = {
         agent_a.name: 0,
         agent_b.name: 0,
@@ -168,6 +188,35 @@ def run_conversation(
         if on_turn is not None:
             on_turn(turn, total_turns)
 
+        current_turn_used_conclusion_token = (
+            allow_early_stop and EARLY_STOP_TOKEN in turn.content
+        )
+        if previous_turn_used_conclusion_token and current_turn_used_conclusion_token:
+            finished_at = utc_now()
+            return ConversationResult(
+                started_at_utc=started_at,
+                finished_at_utc=finished_at,
+                status="completed",
+                error_message=None,
+                turn_limit=turn_limit,
+                terminated_early=True,
+                termination_reason="agreed_conclusion",
+                verbose_mode=verbose_mode,
+                temperature=agent_a.client.temperature,
+                max_tokens=agent_a.client.max_tokens,
+                agent_a_name=agent_a.name,
+                agent_b_name=agent_b.name,
+                agent_a_model=agent_a.client.model,
+                agent_b_model=agent_b.client.model,
+                agent_a_base_url=agent_a.client.base_url,
+                agent_b_base_url=agent_b.client.base_url,
+                agent_a_prompt=agent_a.prompt,
+                agent_b_prompt=agent_b.prompt,
+                opening_instruction=opening,
+                turns=turns,
+            )
+        previous_turn_used_conclusion_token = current_turn_used_conclusion_token
+
     finished_at = utc_now()
     return ConversationResult(
         started_at_utc=started_at,
@@ -175,6 +224,8 @@ def run_conversation(
         status="completed",
         error_message=None,
         turn_limit=turn_limit,
+        terminated_early=False,
+        termination_reason="turn_limit_reached",
         verbose_mode=verbose_mode,
         temperature=agent_a.client.temperature,
         max_tokens=agent_a.client.max_tokens,

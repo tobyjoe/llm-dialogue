@@ -15,7 +15,12 @@ from llm_dialogue.cli import (
     render_progress,
     resolve_output_dir,
 )
-from llm_dialogue.conversation import AgentConfig, ConversationResult, run_conversation
+from llm_dialogue.conversation import (
+    EARLY_STOP_TOKEN,
+    AgentConfig,
+    ConversationResult,
+    run_conversation,
+)
 from llm_dialogue.markdown import write_transcript
 
 
@@ -35,6 +40,20 @@ class FakeClient:
         latest = messages[-1].content
         return ChatResult(
             content=f"{self.prefix} reply {self.calls} to: {latest}",
+            raw_response={},
+        )
+
+
+class SequenceClient(FakeClient):
+    def __init__(self, model: str, replies: list[str]) -> None:
+        super().__init__(model=model, prefix="sequence")
+        self.replies = replies
+
+    def generate(self, messages):
+        self.calls += 1
+        self.history_lengths.append(len(messages))
+        return ChatResult(
+            content=self.replies[self.calls - 1],
             raw_response={},
         )
 
@@ -78,6 +97,8 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual(agent_a.client.history_lengths, [2, 4])
         self.assertEqual(agent_b.client.history_lengths, [2, 4])
         self.assertEqual(result.turn_limit, 2)
+        self.assertFalse(result.terminated_early)
+        self.assertEqual(result.termination_reason, "turn_limit_reached")
 
     def test_turn_limit_must_be_positive(self) -> None:
         agent = AgentConfig(
@@ -93,6 +114,74 @@ class ConversationTests(unittest.TestCase):
                 turn_limit=0,
                 verbose_mode=False,
             )
+
+    def test_conversation_can_terminate_early_on_two_sided_agreement(self) -> None:
+        agent_a = AgentConfig(
+            name="Alpha",
+            prompt="You are Alpha.",
+            client=SequenceClient(
+                model="model-alpha",
+                replies=[
+                    f"I think we have enough. {EARLY_STOP_TOKEN} Final answer: aligned.",
+                ],
+            ),
+        )
+        agent_b = AgentConfig(
+            name="Beta",
+            prompt="You are Beta.",
+            client=SequenceClient(
+                model="model-beta",
+                replies=[
+                    f"Agreed. {EARLY_STOP_TOKEN} Final answer: aligned.",
+                ],
+            ),
+        )
+
+        result = run_conversation(
+            agent_a=agent_a,
+            agent_b=agent_b,
+            turn_limit=10,
+            verbose_mode=False,
+        )
+
+        self.assertEqual(len(result.turns), 2)
+        self.assertTrue(result.terminated_early)
+        self.assertEqual(result.termination_reason, "agreed_conclusion")
+
+    def test_early_stop_requires_both_agents_to_signal(self) -> None:
+        agent_a = AgentConfig(
+            name="Alpha",
+            prompt="You are Alpha.",
+            client=SequenceClient(
+                model="model-alpha",
+                replies=[
+                    f"Maybe done. {EARLY_STOP_TOKEN}",
+                    "Continuing without the token.",
+                ],
+            ),
+        )
+        agent_b = AgentConfig(
+            name="Beta",
+            prompt="You are Beta.",
+            client=SequenceClient(
+                model="model-beta",
+                replies=[
+                    "Not done yet.",
+                    "Still not done.",
+                ],
+            ),
+        )
+
+        result = run_conversation(
+            agent_a=agent_a,
+            agent_b=agent_b,
+            turn_limit=2,
+            verbose_mode=False,
+        )
+
+        self.assertEqual(len(result.turns), 4)
+        self.assertFalse(result.terminated_early)
+        self.assertEqual(result.termination_reason, "turn_limit_reached")
 
     def test_on_turn_callback_receives_each_turn(self) -> None:
         agent_a = AgentConfig(
@@ -220,6 +309,8 @@ class ConversationTests(unittest.TestCase):
                 status="running",
                 error_message=None,
                 turn_limit=2,
+                terminated_early=False,
+                termination_reason="running",
                 verbose_mode=False,
                 temperature=1.0,
                 max_tokens=None,
@@ -251,6 +342,7 @@ class ConversationTests(unittest.TestCase):
                 model_b="anthropic/claude-3.5-sonnet",
                 turn_limit=20,
                 verbose_mode=True,
+                allow_early_stop=True,
                 output_dir=Path(tmpdir),
             )
             logger.log_turn_start(13, 7, "Agent A", "openai/gpt-4o")
@@ -260,7 +352,10 @@ class ConversationTests(unittest.TestCase):
             )
 
             text = logger.path.read_text(encoding="utf-8")
-            self.assertIn("turns_per_agent=20 total_messages=40", text)
+            self.assertIn(
+                "turns_per_agent=20 total_messages=40 verbose_mode=True allow_early_stop=True",
+                text,
+            )
             self.assertIn(
                 "message 13 starting speaker=Agent A speaker_turn=7 model=openai/gpt-4o",
                 text,

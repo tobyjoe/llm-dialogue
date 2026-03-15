@@ -110,6 +110,13 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--no-early-stop",
+        action="store_true",
+        help=(
+            "Disable the explicit conclusion protocol and always run the full configured turns."
+        ),
+    )
+    parser.add_argument(
         "--output-dir",
         default="transcripts",
         help="Directory where Markdown transcripts will be written.",
@@ -255,13 +262,15 @@ class RunLogger:
         model_b: str,
         turn_limit: int,
         verbose_mode: bool,
+        allow_early_stop: bool,
         output_dir: Path,
     ) -> None:
         self._append(
             "configuration "
             f"model_a={model_a} model_b={model_b} "
             f"turns_per_agent={turn_limit} total_messages={turn_limit * 2} "
-            f"verbose_mode={verbose_mode} output_dir={output_dir}"
+            f"verbose_mode={verbose_mode} allow_early_stop={allow_early_stop} "
+            f"output_dir={output_dir}"
         )
 
     def log_turn_start(
@@ -311,6 +320,7 @@ def main() -> int:
         x_title=args.x_title,
         base_urls=[args.base_url_a, base_url_b],
     )
+    allow_early_stop = not args.no_early_stop
     recorder: TranscriptRecorder | None = None
     logger: RunLogger | None = None
     started_at_utc = utc_now()
@@ -322,6 +332,7 @@ def main() -> int:
             model_b=model_b,
             turn_limit=args.turns,
             verbose_mode=args.verbose_mode,
+            allow_early_stop=allow_early_stop,
             output_dir=output_dir,
         )
         agent_a = AgentConfig(
@@ -355,6 +366,8 @@ def main() -> int:
                 status="running",
                 error_message=None,
                 turn_limit=args.turns,
+                terminated_early=False,
+                termination_reason="running",
                 verbose_mode=args.verbose_mode,
                 temperature=args.temperature,
                 max_tokens=args.max_tokens,
@@ -392,6 +405,7 @@ def main() -> int:
             agent_b=agent_b,
             turn_limit=args.turns,
             verbose_mode=args.verbose_mode,
+            allow_early_stop=allow_early_stop,
             opening_instruction=args.opening_instruction,
             on_turn_start=on_turn_start,
             on_turn=on_turn,
