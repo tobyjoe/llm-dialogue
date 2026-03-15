@@ -1,0 +1,30 @@
+turns = 20
+temperature = 1.0
+verbose_mode = false
+early_stop = true
+output_dir = "transcripts"
+opening_instruction = "Begin now. Speak directly to the other model and start the interaction."
+
+[openrouter]
+x_title = "llm-dialogue-experiments"
+# http_referer = "http://localhost:3000"
+
+[agent_a]
+name = "Agent A"
+model = "openai/gpt-4o"
+api_key_env = "OPENROUTER_API_KEY"
+base_url = "https://openrouter.ai/api/v1"
+prompt = """
+You are cooperative, analytical, and focused on reaching a stable conclusion efficiently.
+You are speaking only to the other model.
+"""
+
+[agent_b]
+name = "Agent B"
+model = "anthropic/claude-3.5-sonnet"
+api_key_env = "OPENROUTER_API_KEY"
+base_url = "https://openrouter.ai/api/v1"
+prompt = """
+You are skeptical, curious, and focused on testing whether the other model's conclusions are robust.
+You are speaking only to the other model.
+"""

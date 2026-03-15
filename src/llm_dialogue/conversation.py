@@ -35,6 +35,7 @@ class TranscriptTurn:
 
 @dataclass(slots=True)
 class ConversationResult:
+    input_file_path: str
     started_at_utc: str
     finished_at_utc: str
     status: str
@@ -194,6 +195,7 @@ def run_conversation(
         if previous_turn_used_conclusion_token and current_turn_used_conclusion_token:
             finished_at = utc_now()
             return ConversationResult(
+                input_file_path="",
                 started_at_utc=started_at,
                 finished_at_utc=finished_at,
                 status="completed",
@@ -219,6 +221,7 @@ def run_conversation(
 
     finished_at = utc_now()
     return ConversationResult(
+        input_file_path="",
         started_at_utc=started_at,
         finished_at_utc=finished_at,
         status="completed",

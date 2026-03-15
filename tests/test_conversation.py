@@ -15,6 +15,7 @@ from llm_dialogue.cli import (
     render_progress,
     resolve_output_dir,
 )
+from llm_dialogue.config import load_experiment
 from llm_dialogue.conversation import (
     EARLY_STOP_TOKEN,
     AgentConfig,
@@ -96,6 +97,7 @@ class ConversationTests(unittest.TestCase):
         self.assertIn("Alpha reply 1", result.turns[1].content)
         self.assertEqual(agent_a.client.history_lengths, [2, 4])
         self.assertEqual(agent_b.client.history_lengths, [2, 4])
+        self.assertEqual(result.input_file_path, "")
         self.assertEqual(result.turn_limit, 2)
         self.assertFalse(result.terminated_early)
         self.assertEqual(result.termination_reason, "turn_limit_reached")
@@ -304,6 +306,7 @@ class ConversationTests(unittest.TestCase):
     def test_write_transcript_renders_running_state(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             result = ConversationResult(
+                input_file_path="/tmp/example.toml",
                 started_at_utc="2026-03-14T20:00:00+00:00",
                 finished_at_utc="",
                 status="running",
@@ -328,21 +331,24 @@ class ConversationTests(unittest.TestCase):
 
             path = write_transcript(result, Path(tmpdir))
             text = path.read_text(encoding="utf-8")
+            self.assertIn("Input file: `/tmp/example.toml`", text)
             self.assertIn("- Status: `running`", text)
             self.assertIn("- Finished (UTC): `in-progress`", text)
 
     def test_run_logger_writes_turn_and_failure_details(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
+            experiment_path = Path(tmpdir) / "experiments" / "sample.toml"
+            experiment_path.parent.mkdir(parents=True)
+            experiment_path.write_text("turns = 1\n[agent_a]\nmodel='a'\nprompt='a'\n[agent_b]\nmodel='b'\nprompt='b'\n", encoding="utf-8")
+            experiment = load_experiment(experiment_path)
             logger = RunLogger(
                 output_dir=Path(tmpdir),
                 started_at_utc="2026-03-14T20:00:00+00:00",
             )
             logger.log_configuration(
+                experiment=experiment,
                 model_a="openai/gpt-4o",
                 model_b="anthropic/claude-3.5-sonnet",
-                turn_limit=20,
-                verbose_mode=True,
-                allow_early_stop=True,
                 output_dir=Path(tmpdir),
             )
             logger.log_turn_start(13, 7, "Agent A", "openai/gpt-4o")
@@ -353,7 +359,11 @@ class ConversationTests(unittest.TestCase):
 
             text = logger.path.read_text(encoding="utf-8")
             self.assertIn(
-                "turns_per_agent=20 total_messages=40 verbose_mode=True allow_early_stop=True",
+                f"experiment={experiment.path}",
+                text,
+            )
+            self.assertIn(
+                "turns_per_agent=1 total_messages=2 verbose_mode=False allow_early_stop=True",
                 text,
             )
             self.assertIn(
@@ -362,6 +372,54 @@ class ConversationTests(unittest.TestCase):
             )
             self.assertIn("run failed error=TimeoutError('timed out')", text)
             self.assertIn("partial transcript=", text)
+
+    def test_load_experiment_reads_multiline_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            experiment_path = Path(tmpdir) / "experiments" / "sample.toml"
+            experiment_path.parent.mkdir(parents=True)
+            experiment_path.write_text(
+                """
+turns = 20
+temperature = 1.0
+verbose_mode = true
+early_stop = true
+output_dir = "transcripts"
+opening_instruction = "Begin carefully."
+
+[openrouter]
+http_referer = "http://localhost:3000"
+x_title = "Dialogue Runner"
+
+[agent_a]
+name = "Agent A"
+model = "openai/gpt-4o"
+prompt = '''
+You are Agent A.
+Stay curious.
+'''
+
+[agent_b]
+name = "Agent B"
+model = "anthropic/claude-3.5-sonnet"
+api_key_env = "CUSTOM_KEY"
+prompt = '''
+You are Agent B.
+Stay skeptical.
+'''
+""".strip(),
+                encoding="utf-8",
+            )
+
+            experiment = load_experiment(experiment_path)
+
+            self.assertEqual(experiment.path, experiment_path.resolve())
+            self.assertEqual(experiment.turns, 20)
+            self.assertEqual(experiment.output_dir, "transcripts")
+            self.assertEqual(experiment.agent_a.model, "openai/gpt-4o")
+            self.assertIn("Stay curious.", experiment.agent_a.prompt)
+            self.assertEqual(experiment.agent_b.api_key_env, "CUSTOM_KEY")
+            self.assertEqual(experiment.http_referer, "http://localhost:3000")
+            self.assertEqual(experiment.x_title, "Dialogue Runner")
 
 
 if __name__ == "__main__":

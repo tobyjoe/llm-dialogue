@@ -24,6 +24,8 @@ def render_transcript(result: ConversationResult) -> str:
     lines = [
         "# LLM Conversation Transcript",
         "",
+        f"Input file: `{result.input_file_path}`",
+        "",
         "## Run Metadata",
         "",
         f"- Started (UTC): `{result.started_at_utc}`",

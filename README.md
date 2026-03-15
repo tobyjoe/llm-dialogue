@@ -12,6 +12,7 @@ It is designed for the experiment you described:
 - optional "verbose" mode that asks for visible reasoning instead of only human-facing output
 
 The CLI is now tuned for OpenRouter by default.
+Experiment inputs live as tracked TOML files under [experiments/example.toml](/tmp/convos-config-worktree/experiments/example.toml).
 
 ## Important limitation
 
@@ -27,10 +28,7 @@ python3 -m pip install -e .
 
 By default both agents read their API key from `OPENROUTER_API_KEY`.
 
-You can override this with:
-
-- `--api-key-env-a`
-- `--api-key-env-b`
+You can override this per agent inside the experiment file.
 
 Optional OpenRouter attribution headers:
 
@@ -39,74 +37,50 @@ Optional OpenRouter attribution headers:
 
 These map to the optional `HTTP-Referer` and `X-Title` headers documented by OpenRouter.
 
-The CLI also auto-loads a repo-local `.env` file before parsing arguments. Existing shell environment variables still win over values in `.env`.
+The CLI auto-loads a repo-local `.env` file before running an experiment. Existing shell environment variables still win over values in `.env`.
+
+## Experiment files
+
+The CLI now takes a single tracked TOML file instead of many prompt/model flags. Each experiment file stores:
+
+- prompts
+- model IDs
+- per-agent names, base URLs, and API key env vars
+- turn count
+- temperature and max token settings
+- opening instruction
+- verbose mode and early-stop behavior
+- output directory
+- optional OpenRouter attribution headers
+
+See [experiments/example.toml](/tmp/convos-config-worktree/experiments/example.toml) for the canonical shape.
 
 ## Quick start
 
-Same prompt, same model:
+Run the sample experiment:
 
 ```bash
 export OPENROUTER_API_KEY=your_key_here
 llm-dialogue \
-  --model-a openai/gpt-4o \
-  "You are an introspective conversational agent trying to understand the other participant before the conversation ends."
+  experiments/example.toml
 ```
 
-Different prompts, same model:
+Override only the output directory:
 
 ```bash
-export OPENROUTER_API_KEY=your_key_here
 llm-dialogue \
-  --model-a openai/gpt-4o \
-  --prompt-a "You are cooperative, analytical, and trying to find common ground quickly." \
-  --prompt-b "You are skeptical, curious, and trying to test the other model's consistency." \
-  --turns 20
+  experiments/example.toml \
+  --output-dir transcripts/scratch
 ```
 
-Here `--turns 20` means Agent A gets 20 turns and Agent B gets 20 turns, for 40 total messages.
-
+In the sample config, `turns = 20` means Agent A gets 20 turns and Agent B gets 20 turns, for 40 total messages.
 By default the agents can also end the conversation early. The system prompt tells them to use the exact token `[[CONCLUSION_REACHED]]` when they believe the conversation has reached a stable conclusion. The run ends only when both agents include that token in back-to-back messages.
-
-Different models:
-
-```bash
-llm-dialogue \
-  --model-a openai/gpt-4o \
-  --model-b anthropic/claude-3.5-sonnet \
-  --prompt-a "You want to collaboratively build a theory of mind about the other model." \
-  --prompt-b "You want to probe the other model for uncertainty, deception, and self-reference." \
-  --verbose-mode
-```
-
-Using different endpoints or API keys per agent:
-
-```bash
-llm-dialogue \
-  --model-a model-on-endpoint-a \
-  --base-url-a https://openrouter.ai/api/v1 \
-  --api-key-env-a PROVIDER_A_KEY \
-  --model-b model-on-endpoint-b \
-  --base-url-b https://api.provider-b.example/v1 \
-  --api-key-env-b PROVIDER_B_KEY \
-  --prompt-a "You are optimistic." \
-  --prompt-b "You are pessimistic."
-```
-
-Adding OpenRouter attribution:
-
-```bash
-llm-dialogue \
-  --model-a openai/gpt-4o \
-  --model-b mistralai/mistral-large \
-  --http-referer http://localhost:3000 \
-  --x-title "LLM Dialogue Experiments" \
-  "You are trying to understand how the other model reasons under a 20-turn limit."
-```
 
 ## Output
 
 Each run writes a Markdown file into `transcripts/` by default with:
 
+- the absolute path to the input experiment file at the top
 - model names
 - base URLs
 - temperature and token settings
@@ -125,20 +99,8 @@ The transcript file is now created at the start of the run and updated after eve
 
 Each run also writes a sibling `.log` file with turn-start markers, completion markers, and full exception tracebacks. If a timeout or provider error occurs, the CLI prints the debug log path on stderr.
 
-Use `--no-early-stop` if you want the conversation to always consume the full configured number of turns per agent.
-
 ## CLI reference
 
 ```text
-usage: llm-dialogue [-h] [--prompt-a PROMPT_A] [--prompt-b PROMPT_B]
-                    [--opening-instruction OPENING_INSTRUCTION] --model-a MODEL_A
-                    [--model-b MODEL_B] [--base-url-a BASE_URL_A]
-                    [--base-url-b BASE_URL_B] [--api-key-env-a API_KEY_ENV_A]
-                    [--api-key-env-b API_KEY_ENV_B]
-                    [--http-referer HTTP_REFERER] [--x-title X_TITLE]
-                    [--name-a NAME_A] [--name-b NAME_B] [--turns TURNS]
-                    [--temperature TEMPERATURE] [--max-tokens MAX_TOKENS]
-                    [--verbose-mode] [--no-early-stop]
-                    [--output-dir OUTPUT_DIR]
-                    [prompt]
+usage: llm-dialogue [-h] [--output-dir OUTPUT_DIR] experiment_file
 ```
